@@ -21,6 +21,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>   /* gethostname (Linux) */
 #include <mpi.h>
 
 #define CELL(g, c, y, H) ((g)[(size_t)(c) * (H) + (y)])
@@ -95,6 +96,26 @@ int main(int argc, char **argv)
     int start = rank * base + (rank < rem ? rank : rem); /* 1a coluna global */
     int left  = (rank - 1 + size) % size;
     int right = (rank + 1) % size;
+
+    /* ---- Identificacao do no: cada rank informa o hostname; rank 0 imprime
+          em ordem de rank (MPI_Gather evita saidas intercaladas) ---- */
+    char hostname[256] = {0};
+    gethostname(hostname, sizeof(hostname) - 1);
+    char *all_hosts = NULL;
+    if (rank == 0) all_hosts = malloc((size_t)size * 256);
+    MPI_Gather(hostname, 256, MPI_CHAR, all_hosts, 256, MPI_CHAR, 0, MPI_COMM_WORLD);
+    int my_info[2] = {start, lw};
+    int *all_info = NULL;
+    if (rank == 0) all_info = malloc((size_t)size * 2 * sizeof(int));
+    MPI_Gather(my_info, 2, MPI_INT, all_info, 2, MPI_INT, 0, MPI_COMM_WORLD);
+    if (rank == 0) {
+        for (int r = 0; r < size; r++)
+            printf("Rank %d/%d rodando em %s (colunas %d a %d)\n", r, size,
+                   &all_hosts[(size_t)r * 256], all_info[2*r],
+                   all_info[2*r] + all_info[2*r+1] - 1);
+        fflush(stdout);
+        free(all_hosts); free(all_info);
+    }
 
     double t_init = 0.0, t_comm = 0.0, t_comp = 0.0, t_reduce = 0.0;
 
