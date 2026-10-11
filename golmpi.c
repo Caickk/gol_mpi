@@ -168,6 +168,8 @@ int main(int argc, char **argv)
     }
 
     double t_init = 0.0, t_comm = 0.0, t_comp = 0.0, t_reduce = 0.0;
+    double t_count = 0.0, t_barrier = 0.0;   /* contagem local (comp) e barreira final (comm) */
+    long long bytes_sent = 0;                /* carga util enviada por este rank */
 
     MPI_Barrier(MPI_COMM_WORLD);
     double t_start = MPI_Wtime();
@@ -203,7 +205,12 @@ int main(int argc, char **argv)
     for (int iter = 0; iter <= max_iter; iter++) {
         t0 = MPI_Wtime();
         exchange_halo(univ, lw, h, coltype, size, left, right);
-        t_comm += MPI_Wtime() - t0;
+        if (size > 1) {                      /* P > 1: MPI_Sendrecv -> TCOMM */
+            t_comm += MPI_Wtime() - t0;
+            bytes_sent += 2LL * h * (long long)sizeof(unsigned);
+        } else {                             /* P = 1: copia local, sem MPI -> TCOMP */
+            t_comp += MPI_Wtime() - t0;
+        }
 
         t0 = MPI_Wtime();
         evolve(univ, nw, lw, h);
@@ -213,12 +220,29 @@ int main(int argc, char **argv)
     /* ---- Fase 3: contagem global de celulas vivas (MPI_Reduce) ---- */
     t0 = MPI_Wtime();
     long long local_alive = count_alive(univ, lw, h);
+    t_count = MPI_Wtime() - t0;                    /* calculo */
+
     long long total_alive = 0;
+    t0 = MPI_Wtime();
     MPI_Reduce(&local_alive, &total_alive, 1, MPI_LONG_LONG, MPI_SUM,
                0, MPI_COMM_WORLD);
-    t_reduce = MPI_Wtime() - t0;
+    t_reduce = MPI_Wtime() - t0;                   /* comunicacao */
+    if (size > 1 && rank != 0) bytes_sent += (long long)sizeof(long long);
 
-    double t_total = MPI_Wtime() - t_start;
+    t0 = MPI_Wtime();
+    MPI_Barrier(MPI_COMM_WORLD);                   /* barreira final */
+    double t_end = MPI_Wtime();
+    t_barrier = t_end - t0;                        /* comunicacao (espera) */
+
+    double t_total = t_end - t_start;              /* TTOTAL: entre as barreiras */
+    double tcomp = t_init + t_comp + t_count;      /* TCOMP: fora de chamadas MPI */
+    double tcomm = t_comm + t_reduce + t_barrier;  /* TCOMM: dentro de chamadas MPI */
+
+    /* Todos os ranks imprimem a propria linha (ordem de saida nao e garantida;
+     * cada linha traz o RANK, entao basta ordenar depois). */
+    printf("RANK %d HOST %s TCOMP %f TCOMM %f TTOTAL %f BYTES %lld\n",
+           rank, hostname, tcomp, tcomm, t_total, bytes_sent);
+    fflush(stdout);
 
     /* ---- Tempos: maximo entre ranks de cada fase (MPI_Reduce) ---- */
     double mine[5]   = {t_init, t_comm, t_comp, t_reduce, t_total};
