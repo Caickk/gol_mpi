@@ -1,19 +1,60 @@
 /*
  * Game of Life com MPI - decomposicao de dominio por COLUNAS
- * Comunicacao NAO-BLOQUEANTE (MPI_Isend/MPI_Irecv + MPI_Waitall) com
- * sobreposicao de comunicacao e computacao (miolo vs bordas).
+ * VERSAO OTIMIZADA: SOBREPOSICAO DE COMUNICACAO E COMPUTACAO
+ * (derivada de golmpi.c, que continua sendo a versao original com MPI_Sendrecv)
  *
- * OBJETIVO: manter o nucleo de computacao IDENTICO ao gol.c serial e ao
- * gol_mpi.c bloqueante, alterando apenas a estrategia de comunicacao para
- * permitir o calculo das colunas internas (2..lw-1) enquanto as colunas-fantasma
- * trafegam pela rede.
+ * MOTIVACAO (profiling): o T_comm por rank e quase constante com P, pois cada
+ * geracao paga a latencia de 2 MPI_Sendrecv de ~2 KB, enquanto o T_comp cai com
+ * 1/P; assim a fracao de comunicacao cresce com P. Por geracao o calculo e
+ * varias vezes maior que a troca, entao ha o que esconder.
  *
- * Uso: gol_mpi_opt [largura altura iteracoes]   (padrao: 500 500 50000)
- * Compilar: mpicc -O2 -g -Wall gol_mpi_opt.c -o programa_otimizado
- * Executar: mpirun -np 4 ./programa_otimizado
+ * COMO FUNCIONA (P > 1), em cada geracao:
+ *   1) MPI_Irecv das 2 colunas-fantasma e MPI_Isend das 2 colunas de borda;
+ *   2) calcula o MIOLO (colunas 2..lw-1), que nao le as fantasmas;
+ *   3) MPI_Waitall;
+ *   4) calcula as colunas de borda 1 e lw (agora com as fantasmas);
+ *   5) copia nw -> univ (so depois do Waitall: os envios leem univ).
+ * A conta por celula e identica a do serial; so mudam os limites dos lacos.
+ * O volume de dados trocado NAO muda (2 colunas por geracao por rank).
+ * Com P = 1 nao ha mensagens: copia local das bordas e calculo completo.
+ *
+ * MEDICAO: TCOMM = tempo dentro de chamadas MPI = postagem (Irecv/Isend) +
+ * Waitall + Reduce + Barrier. O tempo no Waitall e a comunicacao NAO escondida
+ * pela computacao ("Espera Waitall" no resumo).
+ *
+ * OBJETIVO: manter o nucleo de computacao IDENTICO ao gol.c serial, para que
+ * a comparacao de desempenho (profiling / speedup) seja justa. As unicas
+ * diferencas em relacao ao serial sao as inerentes a paralelizacao:
+ *   - cada rank guarda apenas lw colunas + 2 colunas-fantasma;
+ *   - o vizinho horizontal vem da coluna-fantasma (no serial vinha de
+ *     (x1 + w) % w); o vizinho vertical continua usando (y1 + h) % h;
+ *   - ha troca de colunas entre ranks e medicao de tempo por fase.
+ *
+ * PARIDADE DO MODULO HORIZONTAL (XIDX): com colunas-fantasma o indice x1 ja
+ * esta sempre dentro de [0, lw+1], entao o "% w" do serial deixaria de ser
+ * necessario. Medido neste codigo, remove-lo torna o calculo ~3x mais rapido
+ * (a divisao inteira domina o custo por celula), o que inflaria o speedup.
+ * Por padrao, XIDX mantem uma operacao de modulo equivalente (valor inalterado,
+ * custo equivalente ao serial). Compile com -DSEM_MODULO_X para desativar.
+ *
+ * Mesmos elementos do serial: tipo unsigned (4 bytes), matriz row-major,
+ * acesso univ[y][x], 3x3 com subtracao da propria celula, modulo no indice
+ * vertical, calculo em buffer "new" + copia de volta a cada geracao.
+ *
+ * Fronteira toroidal: o rank 0 e vizinho a esquerda do rank P-1 (anel).
+ * Layout local: univ[h][lw + 2]
+ *    coluna 0      -> fantasma esquerda
+ *    colunas 1..lw -> colunas reais do rank
+ *    coluna lw+1   -> fantasma direita
+ *
+ * Uso: golmpi [largura [altura [iteracoes]]]   (padrao: 500 500 50000)
+ *      Parametros opcionais e posicionais; os omitidos mantem o valor padrao.
+ * Compilar: mpicc -O2 -Wall gol_mpi.c -o gol_mpi
+ * Executar: mpirun -np 4 ./gol_mpi
  */
 #include <stdio.h>
 #include <stdlib.h>
+#include <limits.h>   /* INT_MAX */
 #include <unistd.h>   /* gethostname (Linux) */
 #include <mpi.h>
 
@@ -23,43 +64,41 @@
 #define XIDX(x1) (((x1) + lw + 2) % (lw + 2))      /* paridade com (x1+w)%w */
 #endif
 
-/* Inicia a troca nao-bloqueante das colunas de borda com os vizinhos.
- * A coluna nao e contigua em row-major, entao usa-se o mesmo tipo derivado
- * (h blocos de 1 unsigned, passo lw+2). */
-static void exchange_halo_start(void *u, int lw, int h, MPI_Datatype coltype,
-                                int size, int left, int right,
-                                MPI_Request reqs[4])
+/* P = 1: nenhuma mensagem; o "vizinho" e o proprio dominio (nao e chamada MPI) */
+static void halo_local(void *u, int lw, int h)
+{
+    unsigned (*univ)[lw + 2] = u;
+    for (int y = 0; y < h; y++) {
+        univ[y][0]      = univ[y][lw];
+        univ[y][lw + 1] = univ[y][1];
+    }
+}
+
+/* P > 1: dispara a troca de colunas SEM bloquear. A coluna nao e contigua em
+ * row-major, entao usa-se um tipo derivado (h blocos de 1 unsigned, passo lw+2).
+ * Tags: 0 = "1a coluna real, indo para a esquerda"; 1 = "ultima, indo para a direita".
+ * Distinguir por tag mantem o casamento correto com P = 2 (vizinho esq. = dir.). */
+static void halo_start(void *u, int lw, MPI_Datatype coltype,
+                       int left, int right, MPI_Request req[4])
 {
     unsigned (*univ)[lw + 2] = u;
 
-    if (size == 1) {
-        /* P = 1: nenhuma mensagem; o "vizinho" e o proprio dominio */
-        for (int y = 0; y < h; y++) {
-            univ[y][0]      = univ[y][lw];
-            univ[y][lw + 1] = univ[y][1];
-        }
-        return;
-    }
-    /* Posta as recepcoes nas colunas-fantasma (direita = lw+1, esquerda = 0) */
-    MPI_Irecv(&univ[0][lw + 1], 1, coltype, right, 0, MPI_COMM_WORLD, &reqs[0]);
-    MPI_Irecv(&univ[0][0],      1, coltype, left,  1, MPI_COMM_WORLD, &reqs[1]);
-
-    /* Posta os envios das colunas reais de borda (1a = 1, ultima = lw) */
-    MPI_Isend(&univ[0][1],      1, coltype, left,  0, MPI_COMM_WORLD, &reqs[2]);
-    MPI_Isend(&univ[0][lw],     1, coltype, right, 1, MPI_COMM_WORLD, &reqs[3]);
+    MPI_Irecv(&univ[0][lw + 1], 1, coltype, right, 0, MPI_COMM_WORLD, &req[0]); /* fantasma direita  */
+    MPI_Irecv(&univ[0][0],      1, coltype, left,  1, MPI_COMM_WORLD, &req[1]); /* fantasma esquerda */
+    MPI_Isend(&univ[0][1],      1, coltype, left,  0, MPI_COMM_WORLD, &req[2]); /* 1a coluna real    */
+    MPI_Isend(&univ[0][lw],     1, coltype, right, 1, MPI_COMM_WORLD, &req[3]); /* ultima coluna real*/
 }
 
-/* Fase 1 da evolucao (sobreposta ao Isend/Irecv): calcula apenas as colunas
- * internas (2 .. lw-1), que NAO dependem das colunas-fantasma (0 e lw+1). */
-static void evolve_interior(void *u, void *nwp, int lw, int h)
+/* Calcula em "nw" a proxima geracao das colunas xa..xb (mesma logica do serial).
+ * "nw" e um buffer auxiliar (equivalente ao "unsigned new[h][w]" do serial). */
+static void compute_cols(void *u, void *nwp, int lw, int h, int xa, int xb)
 {
     unsigned (*univ)[lw + 2] = u;
     unsigned (*nw)[lw + 2]   = nwp;
 
-    if (lw <= 2) return;
-
+    if (xa > xb) return;
     for (int y = 0; y < h; y++) {
-        for (int x = 2; x <= lw - 1; x++) {
+        for (int x = xa; x <= xb; x++) {
             int n = 0;
             for (int y1 = y - 1; y1 <= y + 1; y1++) {
                 for (int x1 = x - 1; x1 <= x + 1; x1++) {
@@ -74,32 +113,11 @@ static void evolve_interior(void *u, void *nwp, int lw, int h)
     }
 }
 
-/* Fase 2 da evolucao (apos MPI_Waitall): calcula as colunas de borda (1 e lw),
- * que dependem das colunas-fantasma recem-recebidas, e copia o buffer "nw"
- * de volta para "univ" (garantindo que os buffers de envio nao sejam alterados
- * antes do termino do MPI_Waitall). */
-static void evolve_borders_and_copy(void *u, void *nwp, int lw, int h)
+/* Copia de volta nw -> univ (colunas reais), como no serial */
+static void copy_back(void *u, void *nwp, int lw, int h)
 {
     unsigned (*univ)[lw + 2] = u;
     unsigned (*nw)[lw + 2]   = nwp;
-    int border_cols[2] = {1, lw};
-    int n_borders = (lw > 1) ? 2 : 1;
-
-    for (int y = 0; y < h; y++) {
-        for (int i = 0; i < n_borders; i++) {
-            int x = border_cols[i];
-            int n = 0;
-            for (int y1 = y - 1; y1 <= y + 1; y1++) {
-                for (int x1 = x - 1; x1 <= x + 1; x1++) {
-                    if (univ[(y1 + h) % h][XIDX(x1)]) {
-                        n++;
-                    }
-                }
-            }
-            if (univ[y][x]) n--;
-            nw[y][x] = (n == 3 || (n == 2 && univ[y][x]));
-        }
-    }
 
     for (int y = 0; y < h; y++) {
         for (int x = 1; x <= lw; x++) {
@@ -130,19 +148,37 @@ int main(int argc, char **argv)
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 
     /* ---- Parametros: rank 0 define, MPI_Bcast distribui ---- */
+    /* Opcionais e posicionais: [largura [altura [iteracoes]]].
+     * Argumento omitido = valor padrao; sem argumentos roda 500 x 500, 50000. */
     int params[3] = {500, 500, 50000};              /* w, h, max_iter */
-    if (rank == 0 && argc == 4) {
-        params[0] = atoi(argv[1]);
-        params[1] = atoi(argv[2]);
-        params[2] = atoi(argv[3]);
+    if (rank == 0) {
+        int bad = 0;
+        if (argc > 4) {
+            fprintf(stderr, "Argumentos demais (%d); o maximo e 3.\n", argc - 1);
+            bad = 1;
+        }
+        for (int i = 1; i < argc && i <= 3; i++) {
+            char *end;
+            long v = strtol(argv[i], &end, 10);
+            if (*argv[i] == '\0' || *end != '\0' || v < 0 || v > INT_MAX) {
+                fprintf(stderr, "Argumento invalido: '%s' (esperado inteiro nao negativo).\n",
+                        argv[i]);
+                bad = 1;
+            } else {
+                params[i - 1] = (int)v;
+            }
+        }
+        if (bad) params[0] = -1;     /* forca a recusa abaixo, em todos os ranks */
     }
     MPI_Bcast(params, 3, MPI_INT, 0, MPI_COMM_WORLD);
     int w = params[0], h = params[1], max_iter = params[2];
 
     if (w < 1 || h < 1 || max_iter < 0 || size > w) {
         if (rank == 0)
-            fprintf(stderr, "Parametros invalidos (P=%d, largura=%d). "
-                            "E preciso P <= largura.\n", size, w);
+            fprintf(stderr, "Parametros invalidos (P=%d, largura=%d, altura=%d, iteracoes=%d).\n"
+                            "Uso: %s [largura [altura [iteracoes]]]   (padrao: 500 500 50000)\n"
+                            "Largura e altura >= 1, iteracoes >= 0 e P <= largura.\n",
+                    size, w, h, max_iter, argv[0]);
         MPI_Finalize();
         return 1;
     }
@@ -178,6 +214,7 @@ int main(int argc, char **argv)
 
     double t_init = 0.0, t_comm = 0.0, t_comp = 0.0, t_reduce = 0.0;
     double t_count = 0.0, t_barrier = 0.0;   /* contagem local (comp) e barreira final (comm) */
+    double t_wait = 0.0;                     /* tempo no MPI_Waitall (comm nao escondida) */
     long long bytes_sent = 0;                /* carga util enviada por este rank */
 
     MPI_Barrier(MPI_COMM_WORLD);
@@ -210,35 +247,33 @@ int main(int argc, char **argv)
     }
     t_init = MPI_Wtime() - t0;
 
-    /* ---- Fase 2: laco principal (com sobreposicao comm/comp) ---- */
-    MPI_Request reqs[4];
+    /* ---- Fase 2: laco principal (mesmo numero de geracoes do serial) ---- */
     for (int iter = 0; iter <= max_iter; iter++) {
-        /* 1. Inicia a troca de colunas-fantasma (MPI_Irecv + MPI_Isend) */
-        t0 = MPI_Wtime();
-        exchange_halo_start(univ, lw, h, coltype, size, left, right, reqs);
-        if (size > 1) {                      /* P > 1: inicio do Isend/Irecv -> TCOMM */
-            t_comm += MPI_Wtime() - t0;
-        } else {                             /* P = 1: copia local, sem MPI -> TCOMP */
-            t_comp += MPI_Wtime() - t0;
-        }
-
-        /* 2. Calcula as colunas internas (2..lw-1) enquanto a rede transmite */
-        t0 = MPI_Wtime();
-        evolve_interior(univ, nw, lw, h);
-        t_comp += MPI_Wtime() - t0;
-
-        /* 3. Aguarda a conclusao das trocas de borda (MPI_Waitall) */
         if (size > 1) {
-            t0 = MPI_Wtime();
-            MPI_Waitall(4, reqs, MPI_STATUSES_IGNORE);
-            t_comm += MPI_Wtime() - t0;
-            bytes_sent += 2LL * h * (long long)sizeof(unsigned);
-        }
+            MPI_Request req[4];
+            double ta = MPI_Wtime();
+            halo_start(univ, lw, coltype, left, right, req);   /* MPI: postagem      */
+            double tb = MPI_Wtime();
+            compute_cols(univ, nw, lw, h, 2, lw - 1);          /* miolo (sem fantasmas) */
+            double tc = MPI_Wtime();
+            MPI_Waitall(4, req, MPI_STATUSES_IGNORE);          /* MPI: espera residual  */
+            double td = MPI_Wtime();
+            compute_cols(univ, nw, lw, h, 1, 1);               /* borda esquerda     */
+            if (lw > 1) compute_cols(univ, nw, lw, h, lw, lw); /* borda direita      */
+            copy_back(univ, nw, lw, h);                        /* so apos o Waitall  */
+            double te = MPI_Wtime();
 
-        /* 4. Calcula as colunas de borda (1 e lw) e copia nw -> univ */
-        t0 = MPI_Wtime();
-        evolve_borders_and_copy(univ, nw, lw, h);
-        t_comp += MPI_Wtime() - t0;
+            t_comm += (tb - ta) + (td - tc);                   /* chamadas MPI       */
+            t_wait += td - tc;                                 /* parte exposta      */
+            t_comp += (tc - tb) + (te - td);                   /* fora de MPI        */
+            bytes_sent += 2LL * h * (long long)sizeof(unsigned);
+        } else {                                               /* P = 1: sem MPI     */
+            double ta = MPI_Wtime();
+            halo_local(univ, lw, h);
+            compute_cols(univ, nw, lw, h, 1, lw);
+            copy_back(univ, nw, lw, h);
+            t_comp += MPI_Wtime() - ta;
+        }
     }
 
     /* ---- Fase 3: contagem global de celulas vivas (MPI_Reduce) ---- */
@@ -269,9 +304,9 @@ int main(int argc, char **argv)
     fflush(stdout);
 
     /* ---- Tempos: maximo entre ranks de cada fase (MPI_Reduce) ---- */
-    double mine[5]   = {t_init, t_comm, t_comp, t_reduce, t_total};
-    double maxima[5] = {0};
-    MPI_Reduce(mine, maxima, 5, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
+    double mine[6]   = {t_init, t_comm, t_comp, t_reduce, t_total, t_wait};
+    double maxima[6] = {0};
+    MPI_Reduce(mine, maxima, 6, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_WORLD);
 
     if (rank == 0) {
         printf("Grade %dx%d | %d iteracoes | %d processo(s)\n", w, h, max_iter, size);
@@ -282,6 +317,7 @@ int main(int argc, char **argv)
         printf("Computacao    : %f\n", maxima[2]);
         printf("Reducao final : %f\n", maxima[3]);
         printf("Tempo total   : %f\n", maxima[4]);
+        printf("Espera Waitall: %f\n", maxima[5]);
     }
 
     MPI_Type_free(&coltype);
