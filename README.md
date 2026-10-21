@@ -379,9 +379,10 @@ Speedup medido (referência: serial), com barras de erro (desvio amostral entre 
 
 A Lei de Amdahl estima o speedup máximo quando uma fração `s` do trabalho é serial:
 
-\[
-S(P) = \frac{1}{s + \frac{1-s}{P}}
-\]
+```math
+S(P) \(= \frac{1}\){s \(+ \frac{1-s}{P}\)}
+```
+
 
 **Fração serial utilizada: `s = 0,0123`** (1,23%). É um valor fixo, configurado no `run_all.sh` (variável `F_SERIAL`) e descrito no script como medido no serial; **não foi ajustado aos resultados deste relatório**.
 
