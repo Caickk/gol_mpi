@@ -362,12 +362,12 @@ No *strong scaling*, o tamanho total do problema permanece constante (grade 500 
 
 **Referência alternativa (MPI com `P = 1`).** Para separar o efeito desse custo do efeito do paralelismo, a tabela abaixo usa `T1 =` Tmax médio do próprio MPI com `P = 1` (437,761 s). É uma tabela separada, para não misturar referências:
 
-| P | Speedup | Eficiência (%) | Karp-Flatt *e* |
-|---:|---:|---:|---:|
-| 2 | 1,914 | 95,7 | 0,0448 |
-| 4 | 3,654 | 91,3 | 0,0316 |
-| 8 | 6,566 | 82,1 | 0,0312 |
-| 13 | 9,716 | 74,7 | 0,0282 |
+| P | Speedup | Eficiência (%) | 
+|---:|---:|---:|
+| 2 | 1,914 | 95,7 |
+| 4 | 3,654 | 91,3 |
+| 8 | 6,566 | 82,1 |
+| 13 | 9,716 | 74,7 |
 
 ### 4.2 Gráfico de *strong scaling*
 
@@ -386,19 +386,18 @@ $$S(P) = \frac{1}{s + \frac{1-s}{P}}$$
 
 > **[PENDENTE]** O procedimento da medição de `s` não está registrado nos dados. Antes da entrega, documentar como foi obtido (ou refazer a medição).
 
-| P | Speedup medido | Speedup de Amdahl (s = 0,0123) | Amdahl − medido | Karp-Flatt *e* (ref. serial) | Karp-Flatt *e* (ref. MPI P = 1) |
-|---:|---:|---:|---:|---:|---:|
-| 1 | 0,936 | 1,000 | 0,064 | n/d | n/d |
-| 2 | 1,791 | 1,976 | 0,184 | 0,1165 | 0,0448 |
-| 4 | 3,419 | 3,858 | 0,438 | 0,0566 | 0,0316 |
-| 8 | 6,144 | 7,366 | 1,222 | 0,0432 | 0,0312 |
-| 13 | 9,092 | 11,328 | 2,236 | 0,0358 | 0,0282 |
+| P | Speedup medido | Speedup de Amdahl (s = 0,0123) | Amdahl − medido |
+|---:|---:|---:|---:|
+| 1 | 0,936 | 1,000 | 0,064 |
+| 2 | 1,791 | 1,976 | 0,184 |
+| 4 | 3,419 | 3,858 | 0,438 |
+| 8 | 6,144 | 7,366 | 1,222 |
+| 13 | 9,092 | 11,328 | 2,236 |
 
 **Comparação.**
 
 - O speedup medido fica **abaixo da curva de Amdahl em todo P > 1**, e a diferença cresce com `P`: de 0,184 em P = 2 para 2,236 em P = 13.
 - **O que limita o speedup nos dados é a parte que não é cálculo.** O tempo do rank mais lento que não é computação (`TTOTAL − Tcomp` máximo) fica **aproximadamente constante**, entre 9,4 e 10,9 s para P ≥ 2, enquanto o `Tcomp` cai com 1/P. Esse custo é de comunicação e sincronização (seção 6) e **não é uma fração serial no sentido de Amdahl**; uma fração `s` fixa não o captura, e é isso que afasta a curva medida da teórica.
-- O Karp-Flatt com referência no serial **diminui** com `P` (0,1165 → 0,0358). Isso é compatível com o excesso de 6,9% do MPI com `P = 1`, que entra no *e* e se dilui à medida que `P` cresce. Com a referência no próprio MPI com `P = 1`, o *e* fica entre 0,028 e 0,032 a partir de `P = 4`, o que é compatível com um custo aditivo aproximadamente fixo, e não com uma fração serial crescente. Trata-se de uma interpretação dos dados, não de uma causa verificada.
 - A interpretação acima combina os dados desta seção com os da seção 6; a hipótese de que o custo é dominado pela latência das mensagens pequenas deve ser confirmada com o `mpiP` (seção 7, pendente).
 
 ## 5. *Weak scaling*
