@@ -381,12 +381,11 @@ A Lei de Amdahl estima o speedup máximo quando uma fração `s` do trabalho é 
 
 $$S(P) = \frac{1}{s + \frac{1-s}{P}}$$
 
-
 **Fração serial utilizada: `s = 0,0123`** (1,23%). É um valor fixo, configurado no `run_all.sh` (variável `F_SERIAL`) e descrito no script como medido no serial; **não foi ajustado aos resultados deste relatório**.
 
 > **[PENDENTE]** O procedimento da medição de `s` não está registrado nos dados. Antes da entrega, documentar como foi obtido (ou refazer a medição).
 
-| P | Speedup medido | Speedup de Amdahl (s = 0,0123) | Amdahl − medido |
+| P | Speedup medido | Speedup de Amdahl (s = 0,0123) | Amdahl − medido | 
 |---:|---:|---:|---:|
 | 1 | 0,936 | 1,000 | 0,064 |
 | 2 | 1,791 | 1,976 | 0,184 |
@@ -397,7 +396,7 @@ $$S(P) = \frac{1}{s + \frac{1-s}{P}}$$
 **Comparação.**
 
 - O speedup medido fica **abaixo da curva de Amdahl em todo P > 1**, e a diferença cresce com `P`: de 0,184 em P = 2 para 2,236 em P = 13.
-- **O que limita o speedup nos dados é a parte que não é cálculo.** O tempo do rank mais lento que não é computação (`TTOTAL − Tcomp` máximo) fica **aproximadamente constante**, entre 9,4 e 10,9 s para P ≥ 2, enquanto o `Tcomp` cai com 1/P. Esse custo é de comunicação e sincronização (seção 6) e **não é uma fração serial no sentido de Amdahl**; uma fração `s` fixa não o captura, e é isso que afasta a curva medida da teórica.
+- **O que limita o speedup nos dados é a parte que não é cálculo.** O tempo do rank mais lento que não é computação (`TTOTAL − Tcomp` máximo) fica **aproximadamente constante**, entre 9,4 e 10,9 s para P ≥ 2, enquanto o `Tcomp` cai com 1/P. Esse custo é de comunicação e sincronização (seção 6). Em termos de Amdahl, um custo aditivo constante `c` equivale a uma fração não escalável `s_ef = c / T1`: com `T1 = 409,644 s`, os valores acima correspondem a `s_ef` entre 2,3% e 2,7%, ou seja, de 1,9 a 2,2 vezes o `s = 0,0123` adotado. É isso que afasta a curva medida da teórica: a curva de Amdahl com esse `s` é otimista porque ele é menor que a fração não escalável observada.
 - A interpretação acima combina os dados desta seção com os da seção 6; a hipótese de que o custo é dominado pela latência das mensagens pequenas deve ser confirmada com o `mpiP` (seção 7, pendente).
 
 ## 5. *Weak scaling*
