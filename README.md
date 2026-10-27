@@ -567,40 +567,81 @@ Com P = 1, 2 e 4 a divisão é exata (500, 250 e 125 colunas) e o `Tmax/Tmédia`
 
 ## 10. Comparação OpenMP versus MPI
 
-Integre aqui os dados do trabalho anterior, mantendo condições comparáveis de hardware, tamanho de entrada, número de threads/processos, compilação e critério de tempo.
+Esta seção compara o desempenho da paralelização em memória compartilhada (OpenMP), obtido no trabalho anterior, com o modelo de memória distribuída (MPI), desenvolvido neste trabalho.
 
-| Modelo | Configuração | Tempo médio (s) | Desvio padrão (s) | Speedup | Eficiência (%) | Observações |
-|---|---|---:|---:|---:|---:|---|
-| Serial | 1 processo / 1 thread | [valor] | [valor] | 1,00 | 100,0 | [referência] |
-| OpenMP | [n threads] | [valor] | [valor] | [valor] | [valor] | [trabalho anterior] |
-| MPI | [P ranks] | [valor] | [valor] | [valor] | [valor] | [este trabalho] |
+**Atenção às limitações experimentais:** os testes foram executados em ambientes de hardware e configurações de problema distintos:
 
-Declare a referência usada para speedup e eficiência. Caso OpenMP e MPI tenham sido avaliados em máquinas, ambientes ou configurações diferentes, deixe a limitação explícita e evite atribuir toda a diferença ao modelo de paralelismo.
+- **Ambiente OpenMP:** 1 nó local com processador Intel® Core™ i5-1135G7 (4 núcleos físicos / 8 threads), 12 GB de RAM DDR4, caches (L1: 320 KiB / L2: 5 MB / L3: 8 MB) e SO Ubuntu 26.04 (kernel 7.0.0-29-generic).
+- **Ambiente MPI (cluster):** 13 nós de cômputo, cada um equipado com processador Intel Core i3-3240, 2 GiB de RAM e 80 GiB de disco rígido.
 
-Discuta as diferenças entre memória compartilhada (OpenMP) e memória distribuída (MPI), incluindo comunicação, sincronização, custo de criação de threads/processos e limites de escalabilidade.
+O tempo serial de referência para o OpenMP foi de **22,10 s**, enquanto para o MPI foi de **409,64 s**. Essa diferença expressiva decorre da carga de trabalho avaliada e da diferença de capacidade computacional entre o processador i5 de 11ª geração, utilizado no OpenMP, e os nós i3 do cluster, utilizados no MPI. Portanto, a comparação abaixo foca exclusivamente no **comportamento da escalabilidade (speedup e eficiência)**, e não nos tempos absolutos.
+
+### 10.1. Tabela comparativa de desempenho
+
+| Modelo | Configuração | Tempo médio (s) | Speedup vs. serial | Eficiência (%) | Observações / limitações |
+|---|---|---:|---:|---:|---|
+| **Serial OMP** | 1 thread | 22,10 | 1,00x | 100,0% | Referência local (i5-1135G7) |
+| **OpenMP** | 1 thread | 22,99 | 0,96x | 96,0% | *Overhead* base do runtime OMP |
+| **OpenMP** | 2 threads | 12,42 | 1,78x | 89,0% | Boa escalabilidade inicial |
+| **OpenMP** | 4 threads | 7,90 | 2,80x | 70,0% | **Pico ótimo** para os 4 núcleos físicos |
+| **OpenMP** | 8 threads | 8,46 | 2,61x | 32,6% | **Degradação** (*oversubscription* no SMT) |
+| **Serial MPI** | 1 processo | 409,64 | 1,00x | 100,0% | Referência no cluster (i3-3240) |
+| **MPI Base** | 4 ranks (4 nós) | 119,80 | 3,42x | 85,5% | Comunicação via rede afeta a eficiência |
+| **MPI Base** | 8 ranks (8 nós) | 66,67 | 6,14x | 76,8% | Continua escalando, sem contenção de CPU |
+| **MPI Base** | 13 ranks (13 nós) | 45,06 | 9,09x | 69,9% | Limite de *strong scaling* avaliado |
+
+### 10.2. Análise de escalabilidade e arquitetura
+
+#### 1. Limite físico versus distribuição (*oversubscription*)
+
+- **OpenMP:** o *speedup* atinge seu pico em 4 threads (2,80x) e sofre degradação ao utilizar 8 threads, caindo para 2,61x. Esse comportamento corresponde ao hardware utilizado: o Intel Core i5-1135G7 possui exatamente **4 núcleos físicos**. Ao instanciar 8 threads, explorando as 8 threads lógicas via SMT/Hyper-Threading, o sistema pode sofrer penalidades de trocas de contexto (*context switching*) e contenção na hierarquia de memória cache, especialmente no L3 de 8 MB. Como o Jogo da Vida pode saturar as unidades de execução e a largura de banda da memória, as threads extras podem trazer pouco benefício ou até prejudicar o desempenho.
+- **MPI:** a execução utiliza 1 processo por nó físico, distribuído em até 13 nós distintos do cluster. Cada processo executa no processador local (i3-3240) e dispõe de 2 GiB de RAM por nó. Nesse cenário, não há superalocação de processos em relação aos nós utilizados. Dessa forma, o MPI continua reduzindo o tempo global de execução de forma consistente, de 66,67 s para 45,06 s, ao passar de 8 para 13 processos.
+
+#### 2. Natureza do *overhead* (custo de paralelização)
+
+- **OpenMP:** a redução da eficiência, que chega a 70% com 4 threads, pode decorrer do custo de gerenciamento das threads pelo sistema operacional, da sincronização e da contenção no subsistema de memória. A coerência de cache é mantida pelo hardware, mas seu custo depende dos padrões de acesso e compartilhamento dos dados.
+- **MPI:** no cluster distribuído, não há coerência de cache global baseada em hardware entre os nós. A comunicação ocorre pela rede, com custos de latência, transferência de dados e sincronização. Embora a eficiência do MPI também diminua gradativamente, atingindo 69,9% em 13 nós, o *speedup* continua aumentando. A queda de eficiência pode estar relacionada aos custos de comunicação, incluindo a transferência das colunas-fantasma pela rede Ethernet.
+
+---
 
 ## 11. Otimização proposta e comparação original versus otimizado
 
-### 11.1 Descrição da otimização
+### 11.1. Descrição da otimização
 
-[Descreva a alteração proposta, o problema que ela pretende resolver e por que se espera que melhore o desempenho.]
+Na versão base (`programa_mpi`), a troca das colunas-fantasma utilizava `MPI_Sendrecv`, uma operação bloqueante. Isso fazia com que o processo aguardasse a conclusão das transferências antes de prosseguir com os cálculos dependentes dos dados recebidos.
 
-### 11.2 Justificativa baseada nos dados
+A otimização proposta substitui esse mecanismo por **operações assíncronas**, utilizando `MPI_Irecv` e `MPI_Isend`. O cálculo passa a ser dividido em duas etapas: a CPU computa imediatamente o miolo da matriz, que não depende dos dados dos vizinhos, enquanto as transferências das bordas podem ocorrer em paralelo. Ao final, uma chamada a `MPI_Waitall` aguarda a conclusão das operações pendentes antes de calcular as bordas.
 
-Use evidências das seções anteriores: chamadas MPI mais caras, proporção de comunicação, desequilíbrio entre ranks, IPC, cache misses ou escalabilidade. Relacione cada evidência com a otimização escolhida e indique quais métricas devem mudar caso a hipótese esteja correta.
+### 11.2. Justificativa baseada nos dados
 
-### 11.3 Comparação experimental
+A análise do *strong scaling* da versão base revelou que a fração de comunicação (\(F_{comm}\)) crescia de 4,15% (P = 2) para **25,56% (P = 13)**. Esse comportamento limitava o *speedup* alcançado.
 
-| P | Versão | Tmax médio (s) | Desvio de Tmax (s) | Speedup relativo | Comunicação (%) | Validação correta? |
-|---:|---|---:|---:|---:|---:|---|
-| [P] | Original | [valor] | [valor] | 1,00 | [valor] | [sim/não] |
-| [P] | Otimizada | [valor] | [valor] | [valor] | [valor] | [sim/não] |
+Com a sobreposição assíncrona, a expectativa era ocultar parte da latência da rede por meio do cálculo do miolo da matriz, reduzindo o tempo de espera associado à comunicação e aumentando o *speedup* global sem alterar o volume de dados transferidos.
 
-Use as mesmas entradas, condições de execução e critérios de medição nas duas versões. Defina `Speedup relativo = Tmax_original / Tmax_otimizado`, se esse for o critério escolhido. Inclua mais de uma configuração de `P` quando possível.
+### 11.3. Comparação experimental: original versus otimizado
 
-### 11.4 Discussão
+A tabela abaixo compara o desempenho da versão original com o da versão otimizada. Os dados foram gerados no cluster.
 
-Informe o ganho ou a perda observada, sua variação entre repetições e possíveis custos introduzidos pela otimização. Confirme que a versão otimizada produz resultados corretos. Se a melhoria não for estatisticamente clara, registre isso em vez de afirmar um ganho conclusivo.
+| P | Tmax original | Fcomm original | Tmax otimizado | Fcomm otimizado | Speedup relativo (\(T_{orig}/T_{otim}\)) | Validação numérica |
+|---:|---:|---:|---:|---:|---:|---|
+| **1** | 437,76 s | 0,00% | **410,56 s** | **0,00%** | **1,06x** | 6.952 células (OK) |
+| **2** | 228,68 s | 4,15% | **206,98 s** | **0,62%** | **1,10x** | 6.952 células (OK) |
+| **4** | 119,80 s | 8,25% | **106,53 s** | **3,22%** | **1,12x** | 6.952 células (OK) |
+| **8** | 66,67 s | 18,11% | **55,11 s** | **6,24%** | **1,21x** | 6.952 células (OK) |
+| **13** | 45,06 s | 25,56% | **35,57 s** | **10,37%** | **1,27x** | 6.952 células (OK) |
+
+*O cálculo de \(F_{comm}\) da versão otimizada corresponde ao tempo máximo de comunicação dividido pelo tempo total, com base no log consolidado `nohup_otimizado_.out`.*
+
+### 11.4. Discussão
+
+Os resultados indicam ganhos de desempenho com a otimização proposta:
+
+1. **Redução da fração de comunicação:** para P = 13, a fração de comunicação caiu de 25,56% para **10,37%**. Esse resultado é consistente com a hipótese de que a sobreposição entre comunicação e computação reduz parte do tempo de espera. Entretanto, a confirmação do mecanismo exige considerar como o tempo de comunicação foi medido e se houve progresso efetivo das transferências durante o cálculo.
+
+2. **Ganho de desempenho crescente:** o ganho relativo aumenta com o número de processos, passando de 1,10x (P = 2) para **1,27x (P = 13)**. Isso sugere que a otimização beneficia especialmente as configurações em que a comunicação representa uma parcela maior do tempo total.
+
+3. **Corretude preservada:** o total de células vivas ao final da execução permaneceu em **6.952 células** em todas as configurações de *strong scaling* apresentadas. Essa igualdade é uma evidência de consistência dos resultados, embora, isoladamente, não prove a ausência de *race conditions*. Uma validação mais completa deve comparar a matriz final ou seu hash com o resultado de referência.
+
 
 ## 12. Conclusões
 
