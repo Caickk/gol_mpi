@@ -25,7 +25,7 @@ O problema resolvido é a simulação do **Jogo da Vida (*Game of Life*) de Conw
 | Volume total de dados | $250\,000 \times 4\text{ B} = 1\,000\,000\text{ B}$ ($\approx 1\text{ MB}$) por matriz; o programa mantém duas (estado atual e buffer auxiliar), $\approx 2\text{ MB}$ |
 | Critério de validação do resultado | Total de células vivas ao final idêntico ao da versão serial (referência: **6952** células vivas para $500 \times 500$ e 50 000 iterações). No *strong scaling*, o total foi **idêntico ao do serial nas 15 execuções MPI** ($P \in \{1, 2, 4, 8, 13\}$; 3 repetições cada) |
 
-**Validação por configuração** (total de células vivas impresso por cada execução; fonte: `resultados/raw/*.out`):
+**Validação por configuração** (total de células vivas impresso por cada execução):
 
 | Experimento | Grade ($w \times h$) | P | Repetições | Total de células vivas | Resultado |
 |---|---|---:|---:|---:|---|
