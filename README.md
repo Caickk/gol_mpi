@@ -560,7 +560,7 @@ A tabela e o gráfico abaixo comparam o desempenho da versão original com o da 
 | **8** | 66,67 s | 18,11% | **55,11 s** | **6,24%** | **$1,21\times$** | **$7,43\times$** | 6.952 células (OK) |
 | **13** | 45,06 s | 25,56% | **35,57 s** | **10,37%** | **$1,27\times$** | **$11,52\times$** | 6.952 células (OK) |
 
-*O cálculo de $F_{\text{comm}}$ da versão otimizada corresponde ao tempo máximo de comunicação dividido pelo tempo total, com base no log consolidado `nohup_otimizado_.out`.*
+*O cálculo de Fcomm da versão otimizada corresponde ao tempo máximo de comunicação dividido pelo tempo total, com base no log consolidado `nohup_otimizado_.out`.*
 
 ![Impacto da otimização no speedup global](2_mpi_original_vs_otimizado.png)
 
