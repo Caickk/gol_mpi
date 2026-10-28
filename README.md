@@ -13,7 +13,7 @@ O problema resolvido é a simulação do **Jogo da Vida (*Game of Life*) de Conw
   1. para cada célula, contar os vizinhos vivos na janela $3 \times 3$ (descontando a própria célula), com índices circulares;
   2. aplicar a regra: a célula fica viva na próxima geração se tiver exatamente 3 vizinhos vivos, ou se estiver viva e tiver exatamente 2;
   3. a nova geração é calculada em um buffer auxiliar e copiada de volta à matriz principal.
-- **Número de gerações:** o laço vai de `0` até `max_iter` inclusive, portanto são $\text{max\_iter} + 1 = \mathbf{50\,001\text{ gerações}}$. Os dados confirmam: cada rank enviou $200\,004\,000\text{ B}$, que corresponde a $2\text{ colunas} \times 500\text{ células} \times 4\text{ B} \times 50\,001\text{ gerações}$.
+- **Número de gerações:** o laço vai de `0` até `max_iter` inclusive, portanto são $N_{\text{iter}} + 1 = \mathbf{50\,001\text{ gerações}}$. Os dados confirmam: cada rank enviou $200\,004\,000\text{ B}$, que corresponde a $2\text{ colunas} \times 500\text{ células} \times 4\text{ B} \times 50\,001\text{ gerações}$.
 - **Saída:** total de células vivas ao final da última geração, além dos tempos medidos.
 
 ### 1.2 Volume de dados
@@ -124,7 +124,7 @@ Principais variáveis de configuração do script (valores usados):
 |---|---|---|
 | `NODES_FILE` | `hosts_nodes` | arquivo com os nós (um por linha) |
 | `W`, `H`, `ITER` | 500, 500, 50000 | grade e iterações do *strong scaling* |
-| `WEAK_W1` | `W` (500) | largura por processo no *weak scaling* ($w = \text{WEAK\_W1} \times P$) |
+| `WEAK_W1` | `W` (500) | largura base $W_{1}$ por processo no *weak scaling* ($w = W_{1} \times P$) |
 | `P_LIST` | 1 2 4 8 13 | padrão do script: potências de 2 até o número de nós, mais o número de nós (13) |
 | `REPS` | 3 | repetições no *strong* e no *weak* |
 | `SERIAL_REPS` | 1 | repetições do serial |
@@ -150,14 +150,14 @@ Principais variáveis de configuração do script (valores usados):
 
 Para cada execução, registra-se o tempo por rank e calculam-se, **por repetição**:
 
-- **Tmax:** maior `TTOTAL` entre os ranks. É o tempo de conclusão da execução paralela e a base do *speedup* e da escalabilidade.
-- **Tmin:** menor `TTOTAL` entre os ranks.
-- **Tmédia:** média aritmética dos `TTOTAL` dos ranks.
+- **$T_{\text{max}}$:** maior `TTOTAL` entre os ranks. É o tempo de conclusão da execução paralela e a base do *speedup* e da escalabilidade.
+- **$T_{\text{min}}$:** menor `TTOTAL` entre os ranks.
+- **$T_{\text{média}}$:** média aritmética dos `TTOTAL` dos ranks.
 - **Desvio padrão entre ranks:** *populacional* (divisor $P$) dos `TTOTAL` dos ranks.
 
-Os valores das 3 repetições são então **promediados** (Tmax médio, Tmin médio etc.). O **desvio entre repetições** é *amostral* (divisor $n - 1$, com $n = 3$), aplicado ao Tmax das 3 repetições, e é o usado nas seções 4 e 5.
+Os valores das 3 repetições são então **promediados** ($T_{\text{max}}$ médio, $T_{\text{min}}$ médio etc.). O **desvio entre repetições** é *amostral* (divisor $n - 1$, com $n = 3$), aplicado ao $T_{\text{max}}$ das 3 repetições, e é o usado nas seções 4 e 5.
 
-> **Atenção ao interpretar Tmax e Tmin.** Como a seção termina em uma barreira, todos os ranks medem `TTOTAL` praticamente iguais ($\text{Tmax} - \text{Tmin} \le 0,0033\text{ s}$ em todas as configurações), mesmo quando a carga é desigual: quem termina antes espera na barreira, e essa espera é contada em `Tcomm`. Logo, a diferença entre Tmax e Tmin de `TTOTAL` **não** mede desequilíbrio de carga; ele é avaliado com `Tcomp` na seção 7.
+> **Atenção ao interpretar $T_{\text{max}}$ e $T_{\text{min}}$.** Como a seção termina em uma barreira, todos os ranks medem `TTOTAL` praticamente iguais ($T_{\text{max}} - T_{\text{min}} \le 0,0033\text{ s}$ em todas as configurações), mesmo quando a carga é desigual: quem termina antes espera na barreira, e essa espera é contada em `Tcomm`. Logo, a diferença entre $T_{\text{max}}$ e $T_{\text{min}}$ de `TTOTAL` **não** mede desequilíbrio de carga; ele é avaliado com `Tcomp` na seção 7.
 
 ### 3.2 `MPI_Wtime` por rank
 
@@ -256,7 +256,7 @@ Fonte: linhas `RANK ... TTOTAL ...` de `resultados/raw/mpi_P<P>_W500_H500_r<rep>
 
 Estatísticas de `TTOTAL` entre os ranks, médias das 3 repetições:
 
-| P | Repetições | Tmax médio (s) | Tmin médio (s) | Tmédia dos ranks (s) | Desvio padrão (s) |
+| P | Repetições | $T_{\text{max}}$ médio (s) | $T_{\text{min}}$ médio (s) | $T_{\text{média}}$ dos ranks (s) | Desvio padrão (s) |
 |---:|---:|---:|---:|---:|---:|
 | 1 | 3 | 437,7608 | 437,7608 | 437,7608 | 0,0000 |
 | 2 | 3 | 228,6833 | 228,6800 | 228,6816 | 0,0016 |
@@ -264,7 +264,7 @@ Estatísticas de `TTOTAL` entre os ranks, médias das 3 repetições:
 | 8 | 3 | 66,6747 | 66,6729 | 66,6737 | 0,0006 |
 | 13 | 3 | 45,0558 | 45,0537 | 45,0545 | 0,0006 |
 
-O desvio padrão desta tabela é o **populacional entre ranks**, calculado em cada repetição e depois promediado. O **desvio entre repetições** (amostral) é apresentado nas seções 4 e 5 como "Desvio de Tmax". Os dois medem coisas diferentes: o primeiro, a dispersão dentro de uma execução (e é quase nulo por causa da barreira final); o segundo, a variação de uma execução para outra.
+O desvio padrão desta tabela é o **populacional entre ranks**, calculado em cada repetição e depois promediado. O **desvio entre repetições** (amostral) é apresentado nas seções 4 e 5 como "Desvio de $T_{\text{max}}$". Os dois medem coisas diferentes: o primeiro, a dispersão dentro de uma execução (e é quase nulo por causa da barreira final); o segundo, a variação de uma execução para outra.
 
 ### 3.3 `/usr/bin/time -v`
 
@@ -291,7 +291,7 @@ Processo medido: `timeout`, que executa `nohup mpirun ...` **no frontend**, ou s
 
 #### Resumo do tempo real por configuração
 
-| P | Tempo real médio (s) | Desvio entre repetições (s) | Tmax médio, `MPI_Wtime` (s) | Tempo real $-$ Tmax (s) |
+| P | Tempo real médio (s) | Desvio entre repetições (s) | $T_{\text{max}}$ médio, `MPI_Wtime` (s) | Tempo real $-$ $T_{\text{max}}$ (s) |
 |---:|---:|---:|---:|---:|
 | 1 | 439,767 | 0,241 | 437,761 | 2,006 |
 | 2 | 230,513 | 0,114 | 228,683 | 1,830 |
@@ -310,7 +310,7 @@ Comando usado:
 
 Quando executado sobre `mpirun` ou outro launcher, `/usr/bin/time -v` mede o processo que foi iniciado diretamente — normalmente o launcher no nó frontend — e não cada processo MPI individual nos nós de cômputo. Assim, métricas locais como uso de CPU, memória residente e falhas de página do comando refletem apenas o processo `mpirun`/`timeout` e não representam o comportamento dos ranks.
 
-**No experimento:** o tempo real excede o Tmax medido com `MPI_Wtime` em **$1,83\text{ a }2,01\text{ s}$**, praticamente constante para todo $P$, enquanto no serial (sem launcher) a diferença entre o tempo real e o tempo interno é de apenas $0,006\text{ s}$. Isso é consistente com um custo fixo de início e fim do runtime (lançamento por `ssh`/`orted`). Por isso o tempo real **não** foi usado para *speedup* e escalabilidade; utiliza-se o Tmax medido por `MPI_Wtime`.
+**No experimento:** o tempo real excede o $T_{\text{max}}$ medido com `MPI_Wtime` em **$1,83\text{ a }2,01\text{ s}$**, praticamente constante para todo $P$, enquanto no serial (sem launcher) a diferença entre o tempo real e o tempo interno é de apenas $0,006\text{ s}$. Isso é consistente com um custo fixo de início e fim do runtime (lançamento por `ssh`/`orted`). Por isso o tempo real **não** foi usado para *speedup* e escalabilidade; utiliza-se o $T_{\text{max}}$ medido por `MPI_Wtime`.
 
 ---
 
@@ -320,7 +320,7 @@ No *strong scaling* (escalabilidade forte), o tamanho total do problema permanec
 
 ### 4.1 Resultados
 
-| P | Tmax médio (s) | Desvio de Tmax (s) | Speedup médio | Desvio do speedup | Eficiência média (%) | Desvio da eficiência (%) |
+| P | $T_{\text{max}}$ médio (s) | Desvio de $T_{\text{max}}$ (s) | Speedup médio | Desvio do speedup | Eficiência média (%) | Desvio da eficiência (%) |
 |---:|---:|---:|---:|---:|---:|---:|
 | 1 | 437,761 | 0,288 | 0,936 | 0,0006 | 93,58 | 0,06 |
 | 2 | 228,683 | 0,118 | 1,791 | 0,0009 | 89,57 | 0,05 |
@@ -328,13 +328,13 @@ No *strong scaling* (escalabilidade forte), o tamanho total do problema permanec
 | 8 | 66,675 | 0,018 | 6,144 | 0,0016 | 76,80 | 0,02 |
 | 13 | 45,056 | 0,022 | 9,092 | 0,0044 | 69,94 | 0,03 |
 
-- **Referência $T_1$:** tempo da **versão serial** (`gol.c`): **$409,644\text{ s}$** (1 execução, portanto sem desvio). O mesmo $T_1$ é usado em toda a tabela.
-- $\text{Speedup}(P) = T_1 / \text{Tmax}(P)$ e $\text{Eficiência}(P) = (\text{Speedup}(P) / P) \times 100\%$, calculados **para cada uma das 3 repetições**; a tabela mostra a média e o desvio amostral entre elas.
-- O desvio de Tmax é o desvio amostral entre as 3 repetições.
+- **Referência $T_{1}$:** tempo da **versão serial** (`gol.c`): **$409,644\text{ s}$** (1 execução, portanto sem desvio). O mesmo $T_{1}$ é usado em toda a tabela.
+- $S(P) = T_{1} / T_{\text{max}}(P)$ e $E(P) = (S(P) / P) \times 100\%$, calculados **para cada uma das 3 repetições**; a tabela mostra a média e o desvio amostral entre elas.
+- O desvio de $T_{\text{max}}$ é o desvio amostral entre as 3 repetições.
 
-**O MPI com $P = 1$ é $6,86\%$ mais lento que o serial** (Tmax médio de $437,761\text{ s}$ contra $409,644\text{ s}$; o `Tcomp` de $P = 1$ é $437,7549\text{ s}$ e o `Tcomm` é nulo, então a diferença está no cálculo). Isso reduz todos os *speedups* da tabela por um fator de $\approx 0,936$.
+**O MPI com $P = 1$ é $6,86\%$ mais lento que o serial** ($T_{\text{max}}$ médio de $437,761\text{ s}$ contra $409,644\text{ s}$; o `Tcomp` de $P = 1$ é $437,7549\text{ s}$ e o `Tcomm` é nulo, então a diferença está no cálculo). Isso reduz todos os *speedups* da tabela por um fator de $\approx 0,936$.
 
-**Referência alternativa (MPI com $P = 1$).** Para separar o efeito desse custo do efeito do paralelismo, a tabela abaixo usa $T_1 =$ Tmax médio do próprio MPI com $P = 1$ ($437,761\text{ s}$):
+**Referência alternativa (MPI com $P = 1$).** Para separar o efeito desse custo do efeito do paralelismo, a tabela abaixo usa $T_{1}$ igual ao $T_{\text{max}}$ médio do próprio MPI com $P = 1$ ($437,761\text{ s}$):
 
 | P | Speedup | Eficiência (%) | 
 |---:|---:|---:|
@@ -347,7 +347,7 @@ No *strong scaling* (escalabilidade forte), o tamanho total do problema permanec
 
 ![Strong scaling: speedup medido, ideal e Amdahl](grafico_strong_scaling.png)
 
-*Speedup* medido (referência: serial), com barras de erro (desvio amostral entre as 3 repetições, $\le 0,005$ e quase invisível nesta escala), a curva ideal $\text{Speedup}(P) = P$ e a curva de Amdahl com $s = 0,0123$. O gráfico foi gerado a partir da tabela 4.1.
+*Speedup* medido (referência: serial), com barras de erro (desvio amostral entre as 3 repetições, $\le 0,005$ e quase invisível nesta escala), a curva ideal $S(P) = P$ e a curva de Amdahl com $s = 0,0123$. O gráfico foi gerado a partir da tabela 4.1.
 
 ### 4.3 Comparação com a Lei de Amdahl
 
@@ -368,7 +368,7 @@ $$S(P) = \frac{1}{s + \frac{1-s}{P}}$$
 **Comparação.**
 
 - O *speedup* medido fica **abaixo da curva de Amdahl em todo $P > 1$**, e a diferença cresce com $P$: de $0,184$ em $P = 2$ para $2,236$ em $P = 13$.
-- **O que limita o *speedup* nos dados é a parte que não é cálculo.** O tempo do rank mais lento que não é computação ($\text{TTOTAL} - \text{Tcomp}$ máximo) fica **aproximadamente constante**, entre $9,4\text{ e }10,9\text{ s}$ para $P \ge 2$, enquanto o `Tcomp` cai com $1/P$. Esse custo é de comunicação e sincronização (seção 6). Em termos de Amdahl, um custo aditivo constante $c$ equivale a uma fração não escalável $s_{ef} = c / T_1$: com $T_1 = 409,644\text{ s}$, os valores acima correspondem a $s_{ef}$ entre $2,3\%$ e $2,7\%$, ou seja, de $1,9\text{ a }2,2$ vezes o $s = 0,0123$ adotado. É isso que afasta a curva medida da teórica: a curva de Amdahl com esse $s$ é otimista porque ele é menor que a fração não escalável observada na prática devido à rede.
+- **O que limita o *speedup* nos dados é a parte que não é cálculo.** O tempo do rank mais lento que não é computação ($\text{TTOTAL} - \text{Tcomp}$ máximo) fica **aproximadamente constante**, entre $9,4\text{ e }10,9\text{ s}$ para $P \ge 2$, enquanto o `Tcomp` cai com $1/P$. Esse custo é de comunicação e sincronização (seção 6). Em termos de Amdahl, um custo aditivo constante $c$ equivale a uma fração não escalável $s_{\text{ef}} = c / T_{1}$: com $T_{1} = 409,644\text{ s}$, os valores acima correspondem a $s_{\text{ef}}$ entre $2,3\%$ e $2,7\%$, ou seja, de $1,9\text{ a }2,2$ vezes o $s = 0,0123$ adotado. É isso que afasta a curva medida da teórica: a curva de Amdahl com esse $s$ é otimista porque ele é menor que a fração não escalável observada na prática devido à rede.
 
 ---
 
@@ -376,7 +376,7 @@ $$S(P) = \frac{1}{s + \frac{1-s}{P}}$$
 
 No *weak scaling* (escalabilidade fraca), o volume de trabalho por processo permanece constante, de modo que o tamanho total $N_{\text{total}}$ cresce proporcionalmente a $P$.
 
-| P | Grade ($w \times h$) | $N_{\text{total}}$ (células) | Dados por processo | Tmax médio (s) | Desvio de Tmax (s) | Escalabilidade fraca (*Weak scaling*) $T(1)/T(P)$ |
+| P | Grade ($w \times h$) | $N_{\text{total}}$ (células) | Dados por processo | $T_{\text{max}}$ médio (s) | Desvio de $T_{\text{max}}$ (s) | Escalabilidade fraca (*Weak scaling*) $T(1)/T(P)$ |
 |---:|---|---:|---|---:|---:|---:|
 | 1 | $500 \times 500$ | 250 000 | 250 000 células ($1\,000\,000\text{ B}$) | 437,761 | 0,288 | 1,000 |
 | 2 | $1000 \times 500$ | 500 000 | 250 000 células ($1\,000\,000\text{ B}$) | 447,302 | 0,435 | 0,979 |
@@ -384,7 +384,7 @@ No *weak scaling* (escalabilidade fraca), o volume de trabalho por processo perm
 | 8 | $4000 \times 500$ | 2 000 000 | 250 000 células ($1\,000\,000\text{ B}$) | 448,948 | 0,051 | 0,975 |
 | 13 | $6500 \times 500$ | 3 250 000 | 250 000 células ($1\,000\,000\text{ B}$) | 448,931 | 0,051 | 0,975 |
 
-$N_{\text{total}} = w \times h$, com $h = 500$ fixo e $w = 500 \times P$. Cada rank recebe exatamente $500\text{ colunas} \times 500\text{ linhas}$ (divisão exata, ver seção 1.3), portanto $250\,000$ células ($1\text{ MB}$ por matriz) para todo $P$. O Tmax médio e o desvio (amostral, 3 repetições) seguem as definições da seção 3.1. A métrica de **weak scaling** (escalabilidade fraca) é calculada por $T(1)/T(P)$, com $T(1) =$ Tmax médio do MPI com $P = 1$ ($437,761\text{ s}$), referência apropriada aqui porque o tamanho total do problema muda com $P$.
+$N_{\text{total}} = w \times h$, com $h = 500$ fixo e $w = 500 \times P$. Cada rank recebe exatamente $500\text{ colunas} \times 500\text{ linhas}$ (divisão exata, ver seção 1.3), portanto $250\,000$ células ($1\text{ MB}$ por matriz) para todo $P$. O $T_{\text{max}}$ médio e o desvio (amostral, 3 repetições) seguem as definições da seção 3.1. A métrica de **weak scaling** (escalabilidade fraca) é calculada por $T(1)/T(P)$, com $T(1)$ igual ao $T_{\text{max}}$ médio do MPI com $P = 1$ ($437,761\text{ s}$), referência apropriada aqui porque o tamanho total do problema muda com $P$.
 
 ### 5.1 Gráfico de *weak scaling*
 
@@ -392,10 +392,10 @@ $N_{\text{total}} = w \times h$, com $h = 500$ fixo e $w = 500 \times P$. Cada r
 
 ### 5.2 Discussão
 
-- O tempo permanece **aproximadamente constante**: a métrica de *weak scaling* fica entre $0,975$ e $0,980$ para $P \ge 2$, ou seja, Tmax só é $2,0\%$ a $2,6\%$ maior que o de $P = 1$.
-- A maior parte desse aumento aparece **na passagem de $P = 1$ para $P = 2$** ($+9,54\text{ s}$, de um aumento total de até $11,19\text{ s}$), que é justamente quando surge a primeira comunicação via rede: no *strong scaling* o `Tcomm` com $P = 2$ é de $9,49\text{ s}$. De $P = 2$ a $P = 13$, o Tmax varia muito pouco ($446,5\text{ a }448,9\text{ s}$).
+- O tempo permanece **aproximadamente constante**: a métrica de *weak scaling* fica entre $0,975$ e $0,980$ para $P \ge 2$, ou seja, $T_{\text{max}}$ só é $2,0\%$ a $2,6\%$ maior que o de $P = 1$.
+- A maior parte desse aumento aparece **na passagem de $P = 1$ para $P = 2$** ($+9,54\text{ s}$, de um aumento total de até $11,19\text{ s}$), que é justamente quando surge a primeira comunicação via rede: no *strong scaling* o `Tcomm` com $P = 2$ é de $9,49\text{ s}$. De $P = 2$ a $P = 13$, o $T_{\text{max}}$ varia muito pouco ($446,5\text{ a }448,9\text{ s}$).
 - Isso é consistente com um custo de comunicação **por rank aproximadamente constante**: cada rank troca sempre 2 colunas de 500 células com 2 vizinhos imediatos no anel, em qualquer $P$. O volume enviado por rank é constante ($200\,004\,000\text{ B}$, mais $8\text{ B}$ nos ranks $\neq 0$ pelo `MPI_Reduce`), e o **total** enviado na rede cresce linearmente com $P$ (de $400\,008\,008\text{ B}$ com $P = 2$ a $2\,600\,052\,096\text{ B}$ com $P = 13$).
-- A fração de comunicação sobe de forma lenta ($2,37\%$ com $P = 2$ e $2,98\%$ com $P = 13$). Entre $P = 2$ e $P = 13$, o Tmax varia $2,4\text{ s}$ ($\approx 0,5\%$), mais do que os desvios entre repetições ($\le 0,435\text{ s}$), indicando uma leve sobrecarga de sincronização global à medida que o anel cresce.
+- A fração de comunicação sobe de forma lenta ($2,37\%$ com $P = 2$ e $2,98\%$ com $P = 13$). Entre $P = 2$ e $P = 13$, o $T_{\text{max}}$ varia $2,4\text{ s}$ ($\approx 0,5\%$), mais do que os desvios entre repetições ($\le 0,435\text{ s}$), indicando uma leve sobrecarga de sincronização global à medida que o anel cresce.
 
 ---
 
@@ -406,11 +406,11 @@ $N_{\text{total}} = w \times h$, com $h = 500$ fixo e $w = 500 \times P$. Cada r
 - **`Tcomm`** = tempo dentro de chamadas MPI da seção paralela: `MPI_Sendrecv` (troca de colunas), `MPI_Reduce` (total de células vivas) e `MPI_Barrier` final. **Inclui sincronização e espera**: a espera pelo rank mais lento na barreira final e nos `Sendrecv` bloqueantes é contada aqui.
 - **`Tcomp`** = tempo fora de chamadas MPI: inicialização, cálculo da evolução (`evolve`) e contagem local. Com $P = 1$, a cópia local das bordas (que não é chamada MPI) entra em `Tcomp`.
 
-Conferência nos dados (execução 1, todos os ranks): $\text{Tcomp} + \text{Tcomm}$ difere de `TTOTAL` em no máximo $0,0055\text{ s}$ ($\le 0,011\%$), o que confirma que os dois intervalos cobrem a seção medida sem sobreposição.
+Conferência nos dados (execução 1, todos os ranks): $T_{\text{comp}} + T_{\text{comm}}$ difere de `TTOTAL` em no máximo $0,0055\text{ s}$ ($\le 0,011\%$), o que confirma que os dois intervalos cobrem a seção medida sem sobreposição.
 
-Dois valores de $F_{comm}$ são apresentados. O da **fórmula sugerida** usa as médias dos ranks; o **adotado no script** usa $\text{Tcomm\_max} / \text{Ttotal\_max}$ (o rank que mais gastou em comunicação sobre o tempo total).
+Dois valores de $F_{\text{comm}}$ são apresentados. O da **fórmula sugerida** usa as médias dos ranks; o **adotado no script** usa $T_{\text{comm, max}} / T_{\text{total, max}}$ (o rank que mais gastou em comunicação sobre o tempo total).
 
-| P | Tcomp médio (s) | Tcomm médio (s) | $F_{comm}$ (%) = $\text{Tcomm} / (\text{Tcomp} + \text{Tcomm}) \times 100$ | $F_{comm}$ (%) = $\text{Tcomm\_max} / \text{Ttotal\_max}$ |
+| P | $T_{\text{comp}}$ médio (s) | $T_{\text{comm}}$ médio (s) | $F_{\text{comm}}$ (%) $= T_{\text{comm}} / (T_{\text{comp}} + T_{\text{comm}}) \times 100$ | $F_{\text{comm}}$ (%) $= T_{\text{comm, max}} / T_{\text{total, max}}$ |
 |---:|---:|---:|---:|---:|
 | 1 | 437,7549 | 0,0000 | 0,00 | 0,00 |
 | 2 | 219,2243 | 9,4523 | 4,13 | 4,15 |
@@ -418,9 +418,9 @@ Dois valores de $F_{comm}$ são apresentados. O da **fórmula sugerida** usa as 
 | 8 | 55,0735 | 11,5952 | 17,39 | 18,11 |
 | 13 | 34,0073 | 11,0428 | 24,51 | 25,56 |
 
-`Tcomp` e `Tcomm` médios são as médias entre os ranks e entre as 3 repetições.
+$T_{\text{comp}}$ e $T_{\text{comm}}$ médios são as médias entre os ranks e entre as 3 repetições.
 
-**Tendência.** O `Tcomp` cai aproximadamente com $1/P$ ($437,75\text{ s} \to 34,01\text{ s}$), mas o `Tcomm` **quase não muda**: de $9,45\text{ s}$ ($P = 2$) a $11,04\text{ s}$ ($P = 13$), com máximo de $11,60\text{ s}$ em $P = 8$. Por isso $F_{comm}$ sobe de $4,1\%$ para $24,5\%$ (ou $25,56\%$ no pior rank) e o ganho no *strong scaling* perde eficiência de $89,6\%$ ($P = 2$) para $69,9\%$ ($P = 13$): a comunicação passa a limitar o desempenho à medida que o cálculo por rank diminui.
+**Tendência.** O `Tcomp` cai aproximadamente com $1/P$ ($437,75\text{ s} \to 34,01\text{ s}$), mas o `Tcomm` **quase não muda**: de $9,45\text{ s}$ ($P = 2$) a $11,04\text{ s}$ ($P = 13$), com máximo de $11,60\text{ s}$ em $P = 8$. Por isso $F_{\text{comm}}$ sobe de $4,1\%$ para $24,5\%$ (ou $25,56\%$ no pior rank) e o ganho no *strong scaling* perde eficiência de $89,6\%$ ($P = 2$) para $69,9\%$ ($P = 13$): a comunicação passa a limitar o desempenho à medida que o cálculo por rank diminui.
 
 **O que o `Tcomm` representa.**
 
@@ -470,9 +470,9 @@ Valores da **execução 1** (as médias de `Tcomp` por rank nas 3 repetições e
 
 ![Balanceamento de carga e espera por rank](3_balanceamento_p13.png)
 
-**Métrica de desequilíbrio.** O tempo de execução paralelo efetivo é determinado pelo $\text{Tmax}$ porque a aplicação possui sincronização global: nenhum processo conclui até que o rank mais lento alcance a barreira final. Já o $\text{Tmédia}$ de `Tcomp` reflete o esforço médio ideal; assim, compara-se o maior `Tcomp` com a média dos ranks através da razão $\text{Tmax}/\text{Tmédia} = \text{Tcomp\_max} / \text{Tcomp\_médio}$ ($1,000 =$ perfeitamente balanceado) e da **eficiência de balanceamento** $= (\text{Tcomp\_médio} / \text{Tcomp\_max}) \times 100\%$. Adotou-se o critério "balanceado se $\text{Tmax}/\text{Tmédia} \le 1,05$". O "*speedup* se balanceado" resulta de remover de Tmax o excesso $\text{Tcomp\_max} - \text{Tcomp\_médio}$. Os valores abaixo são médias das 3 repetições:
+**Métrica de desequilíbrio.** O tempo de execução paralelo efetivo é determinado pelo $T_{\text{max}}$ porque a aplicação possui sincronização global: nenhum processo conclui até que o rank mais lento alcance a barreira final. Já o $T_{\text{média}}$ de `Tcomp` reflete o esforço médio ideal; assim, compara-se o maior `Tcomp` com a média dos ranks através da razão $T_{\text{max}}/T_{\text{média}} = T_{\text{comp, max}} / T_{\text{comp, médio}}$ ($1,000 =$ perfeitamente balanceado) e da **eficiência de balanceamento** $= (T_{\text{comp, médio}} / T_{\text{comp, max}}) \times 100\%$. Adotou-se o critério "balanceado se $T_{\text{max}}/T_{\text{média}} \le 1,05$". O "*speedup* se balanceado" resulta de remover de $T_{\text{max}}$ o excesso $T_{\text{comp, max}} - T_{\text{comp, médio}}$. Os valores abaixo são médias das 3 repetições:
 
-| P | Tcomp máx (s) | Tcomp mín (s) | Tcomp médio (s) | Desvio entre ranks (s) | Tmax/Tmédia | Efic. de balanceamento (%) | Speedup medido | Speedup se balanceado | Classificação |
+| P | $T_{\text{comp}}$ máx (s) | $T_{\text{comp}}$ mín (s) | $T_{\text{comp}}$ médio (s) | Desvio entre ranks (s) | $T_{\text{max}}/T_{\text{média}}$ | Efic. de balanceamento (%) | Speedup medido | Speedup se balanceado | Classificação |
 |---:|---:|---:|---:|---:|---:|---:|---:|---:|---|
 | 1 | 437,7549 | 437,7549 | 437,7549 | 0,0000 | 1,000 | 100,0 | 0,94 | 0,94 | balanceado |
 | 2 | 219,2298 | 219,2188 | 219,2243 | 0,0055 | 1,000 | 100,0 | 1,79 | 1,79 | balanceado |
@@ -480,18 +480,18 @@ Valores da **execução 1** (as médias de `Tcomp` por rank nas 3 repetições e
 | 8 | 55,7309 | 54,5964 | 55,0735 | 0,4533 | 1,012 | 98,8 | 6,14 | 6,21 | balanceado |
 | 13 | 34,7077 | 33,5347 | 34,0073 | 0,4603 | 1,021 | 98,0 | 9,09 | 9,24 | balanceado |
 
-**Quem é o rank mais lento e por quê.** Todos os casos ficam abaixo do limite de $1,05$ (pior caso: $P = 13$, $\text{Tmax}/\text{Tmédia} = 1,021$, eficiência de balanceamento de $98,0\%$). O desequilíbrio observado vem da **decomposição**: os primeiros $w \bmod P$ ranks recebem uma coluna a mais. A razão entre o `Tcomp` médio dos dois grupos coincide com a razão entre os números de colunas:
+**Quem é o rank mais lento e por quê.** Todos os casos ficam abaixo do limite de $1,05$ (pior caso: $P = 13$, $T_{\text{max}}/T_{\text{média}} = 1,021$, eficiência de balanceamento de $98,0\%$). O desequilíbrio observado vem da **decomposição**: os primeiros $w \bmod P$ ranks recebem uma coluna a mais. A razão entre o `Tcomp` médio dos dois grupos coincide com a razão entre os números de colunas:
 
-| P | Grupo com mais colunas | Colunas | Tcomp médio do grupo (s) | Grupo com menos colunas | Colunas | Tcomp médio do grupo (s) | Razão dos Tcomp | Razão das colunas |
+| P | Grupo com mais colunas | Colunas | $T_{\text{comp}}$ médio do grupo (s) | Grupo com menos colunas | Colunas | $T_{\text{comp}}$ médio do grupo (s) | Razão dos $T_{\text{comp}}$ | Razão das colunas |
 |---:|---|---:|---:|---|---:|---:|---:|---:|
 | 8 | ranks 0–3 | 63 | 55,5166 | ranks 4–7 | 62 | 54,6305 | 1,0162 | 1,0161 |
 | 13 | ranks 0–5 | 39 | 34,4986 | ranks 6–12 | 38 | 33,5862 | 1,0272 | 1,0263 |
 
-Com $P = 1, 2\text{ e }4$ a divisão é exata (500, 250 e 125 colunas) e o $\text{Tmax}/\text{Tmédia}$ é $\le 1,002$. O custo de cálculo por célula é uniforme neste algoritmo, de modo que o trabalho é diretamente proporcional ao número de colunas.
+Com $P = 1, 2\text{ e }4$ a divisão é exata (500, 250 e 125 colunas) e o $T_{\text{max}}/T_{\text{média}}$ é $\le 1,002$. O custo de cálculo por célula é uniforme neste algoritmo, de modo que o trabalho é diretamente proporcional ao número de colunas.
 
 **Esperas.** Os `TTOTAL` dos ranks são praticamente iguais (seção 3.1) porque a barreira final os equaliza: o rank com menos trabalho termina mais cedo e espera. Em $P = 13$ isso aparece no `Tcomm`, $\approx 0,9\text{ s}$ maior nos ranks de 38 colunas do que nos de 39 (seção 6). O ganho que se obteria eliminando esse desequilíbrio é mínimo: o *speedup* iria de $9,09$ para $9,24$ em $P = 13$ e de $6,14$ para $6,21$ em $P = 8$. Como o desequilíbrio máximo é de **uma coluna**, ele não pode ser reduzido por outra divisão em blocos de colunas inteiras; o resto de $500 \bmod P$ colunas sempre existirá.
 
-**Variação entre nós.** Dentro de cada grupo de ranks com a mesma carga, o **rank 2 (`node3`) é o mais lento** em $P = 4, 8\text{ e }13$: $+0,31\%$, $+0,52\%$ e $+0,73\%$ sobre os pares do mesmo grupo (médias de 3 repetições). Com $P = 4$, em que todos os ranks têm 125 colunas, é esse rank que define o Tmax de cálculo.
+**Variação entre nós.** Dentro de cada grupo de ranks com a mesma carga, o **rank 2 (`node3`) é o mais lento** em $P = 4, 8\text{ e }13$: $+0,31\%$, $+0,52\%$ e $+0,73\%$ sobre os pares do mesmo grupo (médias de 3 repetições). Com $P = 4$, em que todos os ranks têm 125 colunas, é esse rank que define o $T_{\text{max}}$ de cálculo.
 
 ---
 
@@ -546,13 +546,13 @@ A otimização proposta substitui esse mecanismo por **operações assíncronas 
 
 ### 9.2 Justificativa baseada nos dados
 
-A análise do *strong scaling* da versão base revelou que a fração de comunicação ($F_{comm}$) crescia de $4,15\%$ ($P = 2$) para **$25,56\%$ ($P = 13$)**, tornando-se o principal limitador do *speedup*. Com a sobreposição assíncrona (*overlap* de comunicação e computação), o objetivo é ocultar a latência da rede atrás do tempo de processamento útil do miolo da matriz, reduzindo o tempo de espera em `Tcomm` sem alterar o volume de bytes transferidos.
+A análise do *strong scaling* da versão base revelou que a fração de comunicação ($F_{\text{comm}}$) crescia de $4,15\%$ ($P = 2$) para **$25,56\%$ ($P = 13$)**, tornando-se o principal limitador do *speedup*. Com a sobreposição assíncrona (*overlap* de comunicação e computação), o objetivo é ocultar a latência da rede atrás do tempo de processamento útil do miolo da matriz, reduzindo o tempo de espera em `Tcomm` sem alterar o volume de bytes transferidos.
 
 ### 9.3 Comparação experimental: original versus otimizado
 
 A tabela e o gráfico abaixo comparam o desempenho da versão original com o da versão otimizada no cluster UMBU:
 
-| P | Tmax original | $F_{comm}$ original | Tmax otimizado | $F_{comm}$ otimizado | Speedup relativo ($T_{\text{orig}}/T_{\text{otim}}$) | Speedup global ($T_{\text{serial}}/T_{\text{otim}}$) | Validação numérica |
+| P | $T_{\text{max}}$ original | $F_{\text{comm}}$ original | $T_{\text{max}}$ otimizado | $F_{\text{comm}}$ otimizado | Speedup relativo ($T_{\text{orig}}/T_{\text{otim}}$) | Speedup global ($T_{\text{serial}}/T_{\text{otim}}$) | Validação numérica |
 |---:|---:|---:|---:|---:|---:|---:|---|
 | **1** | 437,76 s | 0,00% | **410,56 s** | **0,00%** | **$1,06\times$** | **$1,00\times$** | 6.952 células (OK) |
 | **2** | 228,68 s | 4,15% | **206,98 s** | **0,62%** | **$1,10\times$** | **$1,98\times$** | 6.952 células (OK) |
@@ -560,7 +560,7 @@ A tabela e o gráfico abaixo comparam o desempenho da versão original com o da 
 | **8** | 66,67 s | 18,11% | **55,11 s** | **6,24%** | **$1,21\times$** | **$7,43\times$** | 6.952 células (OK) |
 | **13** | 45,06 s | 25,56% | **35,57 s** | **10,37%** | **$1,27\times$** | **$11,52\times$** | 6.952 células (OK) |
 
-*O cálculo de $F_{comm}$ da versão otimizada corresponde ao tempo máximo de comunicação dividido pelo tempo total, com base no log consolidado `nohup_otimizado_.out`.*
+*O cálculo de $F_{\text{comm}}$ da versão otimizada corresponde ao tempo máximo de comunicação dividido pelo tempo total, com base no log consolidado `nohup_otimizado_.out`.*
 
 ![Impacto da otimização no speedup global](2_mpi_original_vs_otimizado.png)
 
@@ -582,20 +582,20 @@ Com base nos experimentos conduzidos no cluster UMBU e nas análises apresentada
    A transição para memória distribuída com MPI exige decomposição explícita do domínio de dados (neste caso, divisão 1D por colunas com criação de colunas-fantasma para representar a vizinhança em anel toroidal). Diferente da memória compartilhada, cada rank opera em seu espaço de endereçamento isolado nos nós i3-3240 ($2\text{ GiB}$ de RAM), o que elimina conflitos de cache, mas exige trocas explícitas de mensagens a cada geração e sincronização coletiva (`MPI_Reduce` e `MPI_Barrier`). Além disso, verificou-se a importância de medir o tempo internamente com `MPI_Wtime`, visto que medições externas no frontend (`/usr/bin/time -v`) embutem um custo fixo de inicialização do runtime ($\approx 1,9\text{ s}$).
 
 2. **Como $P$ afetou o tempo, o *speedup* e a eficiência?**
-   - No **strong scaling** (grade fixa $500 \times 500$), o aumento de $P$ reduziu consistentemente o tempo de execução paralelo (`Tmax`), caindo de $437,76\text{ s}$ ($P=1$) para $45,06\text{ s}$ ($P=13$) na versão base, o que representa um *speedup* de $9,09\times$ sobre o tempo serial ($409,64\text{ s}$). Entretanto, a eficiência caiu gradativamente de $93,58\%$ ($P=1$) para $69,94\%$ ($P=13$).
+   - No **strong scaling** (grade fixa $500 \times 500$), o aumento de $P$ reduziu consistentemente o tempo de execução paralelo ($T_{\text{max}}$), caindo de $437,76\text{ s}$ ($P=1$) para $45,06\text{ s}$ ($P=13$) na versão base, o que representa um *speedup* de $9,09\times$ sobre o tempo serial ($409,64\text{ s}$). Entretanto, a eficiência caiu gradativamente de $93,58\%$ ($P=1$) para $69,94\%$ ($P=13$).
    - No **weak scaling** (carga fixa de $500 \times 500$ células por processo e grade global $500P \times 500$), o tempo de execução manteve-se altamente estável entre $446,51\text{ s}$ e $448,93\text{ s}$ de $P=2$ até $P=13$, sustentando um índice de *weak scaling* entre $97,5\%$ e $98,0\%$, validando na prática a Lei de Gustafson.
 
 3. **Em que condições o custo de comunicação passou a limitar o desempenho?**
    O custo de comunicação passou a limitar o desempenho nas configurações de *strong scaling* a partir de $P=4$ (onde a curva medida começa a se afastar visivelmente da curva ideal e da projeção de Amdahl) e tornou-se crítico em $P=8$ e $P=13$. Como cada rank troca sempre 2 colunas por geração ($200\,004\,000\text{ B}$ ao longo de 50 001 gerações), o tempo gasto em comunicação e espera (`Tcomm`) permaneceu quase fixo entre $9,45\text{ s}$ e $11,60\text{ s}$, enquanto o tempo de computação (`Tcomp`) caiu com $1/P$ (de $437,75\text{ s}$ para $34,01\text{ s}$). Em $P=13$, a fração de comunicação atingiu $25,56\%$ do tempo total, agindo como uma fração não escalável efetiva ($\approx 2,5\%$) superior à fração serial pura do código ($1,23\%$).
 
 4. **O que as medições por rank revelaram sobre o balanceamento de carga?**
-   Revelaram que o algoritmo do Jogo da Vida com decomposição por colunas possui carga uniforme por célula e é intrinsecamente balanceado. Em todas as configurações, a razão $\text{Tmax}/\text{Tmédia}$ de computação ficou $\le 1,021$ (eficiência de balanceamento $\ge 98,0\%$). O leve desequilíbrio em $P=8$ e $P=13$ deve-se exclusivamente ao resto da divisão inteira ($500 \bmod P$): em $P=13$, os ranks 0 a 5 processam 39 colunas ($\text{Tcomp} \approx 34,50\text{ s}$) e os ranks 6 a 12 processam 38 colunas ($\text{Tcomp} \approx 33,59\text{ s}$). Os ranks com uma coluna a menos terminam o cálculo $\approx 0,91\text{ s}$ antes e absorvem essa diferença aguardando na barreira e nas trocas síncronas, igualando o `TTOTAL` de todos os processos.
+   Revelaram que o algoritmo do Jogo da Vida com decomposição por colunas possui carga uniforme por célula e é intrinsecamente balanceado. Em todas as configurações, a razão $T_{\text{max}}/T_{\text{média}}$ de computação ficou $\le 1,021$ (eficiência de balanceamento $\ge 98,0\%$). O leve desequilíbrio em $P=8$ e $P=13$ deve-se exclusivamente ao resto da divisão inteira ($500 \bmod P$): em $P=13$, os ranks 0 a 5 processam 39 colunas ($T_{\text{comp}} \approx 34,50\text{ s}$) e os ranks 6 a 12 processam 38 colunas ($T_{\text{comp}} \approx 33,59\text{ s}$). Os ranks com uma coluna a menos terminam o cálculo $\approx 0,91\text{ s}$ antes e absorvem essa diferença aguardando na barreira e nas trocas síncronas, igualando o `TTOTAL` de todos os processos.
 
 5. **Como os resultados de MPI se comparam aos de OpenMP, considerando as limitações experimentais?**
    Considerando que os testes ocorreram em arquiteturas distintas (OpenMP em CPUs locais de 4 núcleos físicos — Intel Core i5-1135G7 e AMD Ryzen 5 7520U — e MPI em até 13 nós Intel Core i3-3240), a comparação das curvas de escalabilidade mostra o impacto da arquitetura de memória e CPU. O OpenMP atingiu seu pico exatamente em 4 threads ($2,80\times$ no i5 e $3,80\times$ no Ryzen) e sofreu degradação em 8 threads ($2,61\times$ e $3,47\times$) devido a *oversubscription* (disputa por unidades de execução e cache via SMT). Em contrapartida, o MPI distribuiu 1 processo por nó físico isolado, adicionando CPU e memória reais sem contenção local, o que permitiu escalar continuamente até 13 processos ($9,09\times$ no MPI base e $11,52\times$ no MPI otimizado).
 
 6. **A otimização proposta trouxe benefício mensurável e manteve a correção?**
-   Sim. A substituição de `MPI_Sendrecv` por chamadas não-bloqueantes (`MPI_Isend`/`MPI_Irecv` e `MPI_Waitall`), sobrepondo o cálculo do miolo da matriz à transferência de rede das colunas de borda, reduziu a fração de comunicação em $P=13$ de $25,56\%$ para $10,37\%$ e diminuiu o Tmax de $45,06\text{ s}$ para $35,57\text{ s}$. Isso resultou em um *speedup* relativo de $1,27\times$ sobre a versão MPI original e elevou o *speedup* global para $11,52\times$, mantendo o resultado exato de **6.952 células vivas** em todas as execuções.
+   Sim. A substituição de `MPI_Sendrecv` por chamadas não-bloqueantes (`MPI_Isend`/`MPI_Irecv` e `MPI_Waitall`), sobrepondo o cálculo do miolo da matriz à transferência de rede das colunas de borda, reduziu a fração de comunicação em $P=13$ de $25,56\%$ para $10,37\%$ e diminuiu o $T_{\text{max}}$ de $45,06\text{ s}$ para $35,57\text{ s}$. Isso resultou em um *speedup* relativo de $1,27\times$ sobre a versão MPI original e elevou o *speedup* global para $11,52\times$, mantendo o resultado exato de **6.952 células vivas** em todas as execuções.
 
 ### 10.1 Limitações e melhorias futuras
 
@@ -613,5 +613,5 @@ Registro consolidado das informações do ambiente e execução para reproduçã
 - **Implementação MPI e compilação:** Open MPI; compilação com `gcc -O2 -g` (serial) e `mpicc -O2 -g` (MPI), conforme a etapa `compile` do script `run_all.sh`.
 - **Comandos completos:** documentados na seção 2 (`run_all.sh` e os comandos `mpirun`, `ssh` e `/usr/bin/time -v`).
 - **Tamanho da entrada e parâmetros:** *strong scaling*: grade $500 \times 500$, 50 000 iterações (50 001 gerações), $P \in \{1, 2, 4, 8, 13\}$. *Weak scaling*: $h = 500$, $w = 500 \times P$. Opções do `mpirun`: `--map-by ppr:1:node --bind-to core --mca routed direct`.
-- **Número de repetições e critério de agregação:** 3 repetições no *strong* e no *weak scaling*; 1 execução do serial. Tmax por repetição (maior `TTOTAL` entre os ranks); médias e desvio amostral entre repetições (seção 3.1).
+- **Número de repetições e critério de agregação:** 3 repetições no *strong* e no *weak scaling*; 1 execução do serial. $T_{\text{max}}$ por repetição (maior `TTOTAL` entre os ranks); médias e desvio amostral entre repetições (seção 3.1).
 - **Localização dos códigos, logs e gráficos:** diretório `resultados/` (`raw/` com `.out`, `.time` e `.err` de cada execução, `tabelas/`, `RELATORIO_TABELAS.md`, `dados_strong_scaling.csv`, `machinefile`, `parametros.txt`, `comandos_executados.log`, `interferencia.log`), log `nohup_otimizado_.out` e gráficos `grafico_strong_scaling.png`, `1_comparacao_openmp_mpi.png`, `2_mpi_original_vs_otimizado.png`, `3_balanceamento_p13.png` e `4_weak_scaling.png`.
