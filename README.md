@@ -570,9 +570,33 @@ Os resultados comprovam a eficácia da otimização proposta:
 2. **Ganho de desempenho crescente com $P$:** o *speedup* relativo ($T_{\text{orig}}/T_{\text{otim}}$) cresce à medida que adicionamos nós, passando de $1,10\times$ ($P = 2$) para **$1,27\times$ ($P = 13$)**, elevando o *speedup* global (frente ao serial de $409,64\text{ s}$) de $9,09\times$ para **$11,52\times$**. A otimização atua exatamente sobre o gargalo que mais penalizava as configurações com maior número de processos.
 3. **Corretude preservada:** o total de células vivas ao final da execução permaneceu exatamente em **6.952 células** em todas as configurações testadas, confirmando que a separação do cálculo entre miolo e bordas após o `MPI_Waitall` preservou a integridade dos dados sem *race conditions*.
 
+### 10 Modelo híbrido MPI + OpenMP: por que e quando
+
+> **Escopo:** a versão híbrida não foi implementada nem medida neste trabalho. A discussão é conceitual.
+
+**Por que sistemas do TOP500 combinam os dois modelos.** Os nós atuais têm dezenas ou centenas de núcleos. Usar um processo MPI por núcleo multiplica o número de *ranks*, a memória replicada e o custo das mensagens e das operações coletivas. A combinação usa cada modelo onde o hardware o favorece:
+
+- **MPI entre nós:** memória distribuída, comunicação explícita pela rede.
+- **OpenMP dentro do nó:** memória compartilhada, sem mensagens e sem colunas-fantasma entre as *threads*, que acessam a mesma matriz. Ainda há custo de sincronização (a barreira ao fim de cada laço paralelo, a cada geração) e de contenção de memória e cache, mas ele ocorre em memória local e é bem menor que o de uma troca de mensagens pela rede.
+
+Com isso, menos *ranks* significam menos mensagens, menos dados replicados e menos sincronização global pela rede.
+
+**Aplicação ao Jogo da Vida.** Na decomposição por colunas, cada rank troca sempre duas colunas-fantasma por geração, independentemente de $P$. Para usar todos os núcleos de um nó com MPI puro, seria preciso um rank por núcleo: cada rank teria menos colunas, mas continuaria trocando duas, o que aumenta o número total de mensagens, de colunas-fantasma replicadas e de participantes nas sincronizações, além de ampliar o desequilíbrio causado pelo resto da divisão. No modelo híbrido, usa-se **um rank por nó** e várias *threads* dentro dele: o nó mantém uma única fatia de colunas, as *threads* dividem o laço de `evolve` em memória compartilhada, e só as duas colunas de borda do nó atravessam a rede. A comunicação por rank não diminui, mas **não cresce** ao se usar mais núcleos, e as fronteiras entre núcleos do mesmo nó deixam de ser mensagens. No cluster UMBU, que rodou um processo por nó, os demais núcleos ficaram sem uso, o que torna o híbrido uma extensão natural. Como o híbrido reduz o tempo de cálculo sem reduzir a comunicação, ele deve ser combinado com a sobreposição de comunicação e cálculo (seção 9).
+
+**Quando usar apenas um dos modelos.**
+
+| Situação | Escolha | Motivo |
+|---|---|---|
+| Problema cabe em um nó | **Só OpenMP** | Sem rede nem fantasmas, código mais simples |
+| Problema excede a memória ou o poder de um nó | **MPI** | Só o MPI cruza nós |
+| Poucos núcleos por nó e muito trabalho por rank | **Só MPI** | O ganho do OpenMP seria pequeno frente à complexidade extra (afinidade, *thread safety*) |
+| Muitos núcleos por nó e comunicação já limitando o *strong scaling* | **Híbrido** | Evita *ranks* demais e comunicação dominante |
+
+Em OpenMP, convém evitar mais *threads* que núcleos físicos: o uso de SMT tende a degradar o desempenho por contenção de memória e cache, como observado na seção 8.
+
 ---
 
-## 10. Conclusões
+## 11. Conclusões
 
 Com base nos experimentos conduzidos no cluster UMBU e nas análises apresentadas ao longo deste relatório, sintetizam-se as respostas para as questões fundamentais do estudo:
 
@@ -594,11 +618,6 @@ Com base nos experimentos conduzidos no cluster UMBU e nas análises apresentada
 
 6. **A otimização proposta trouxe benefício mensurável e manteve a correção?**
    Sim. A substituição de `MPI_Sendrecv` por chamadas não-bloqueantes (`MPI_Isend`/`MPI_Irecv` e `MPI_Waitall`), sobrepondo o cálculo do miolo da matriz à transferência de rede das colunas de borda, reduziu a fração de comunicação em $P=13$ de $25,56\%$ para $10,37\%$ e diminuiu o $T_{\text{max}}$ de $45,06\text{ s}$ para $35,57\text{ s}$. Isso resultou em um *speedup* relativo de $1,27\times$ sobre a versão MPI original e elevou o *speedup* global para $11,52\times$, mantendo o resultado exato de **6.952 células vivas** em todas as execuções.
-
-### 10.1 Limitações e melhorias futuras
-
-- **Limitações do experimento:** a versão serial foi executada apenas 1 vez; as grades de *weak scaling* para $P \ge 2$ foram validadas por consistência entre repetições (sem execução serial de referência para matrizes maiores devido ao alto tempo de execução); e houve leve variação de desempenho entre nós específicos (como o `node3`), sugerindo pequenas diferenças de ambiente ou ruído de sistema operacional.
-- **Melhorias futuras:** avaliar uma implementação **híbrida MPI + OpenMP** (utilizando MPI apenas para comunicação entre os nós físicos e OpenMP para paralelizar os núcleos internos de cada processador i3-3240, reduzindo o número de mensagens na rede e o perímetro de comunicação); testar decomposição bidimensional (blocos 2D) para matrizes maiores; e realizar *profiling* detalhado de contadores de hardware e chamadas MPI individuais.
 
 ---
 
