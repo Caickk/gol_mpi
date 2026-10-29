@@ -250,8 +250,6 @@ Os valores das 3 repetições são então **promediados** ($T_{\text{max}}$ méd
 | 13 | 3 | 11 | 45,0445 |
 | 13 | 3 | 12 | 45,0441 |
 
-Fonte: linhas `RANK ... TTOTAL ...` de `resultados/raw/mpi_P<P>_W500_H500_r<rep>.out`. Os valores por rank das execuções do *weak scaling* estão nos arquivos `resultados/raw/mpi_P<P>_W<500*P>_H500_r<rep>.out`.
-
 #### Resumo por configuração
 
 Estatísticas de `TTOTAL` entre os ranks, médias das 3 repetições:
