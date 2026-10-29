@@ -527,10 +527,26 @@ O tempo serial de referência para o OpenMP (no i5-1135G7) foi de **$22,10\text{
 - **OpenMP:** o *speedup* atinge seu pico em 4 threads ($2,80\times$ no i5-1135G7 e $3,80\times$ no Ryzen 5 7520U) e sofre degradação ao utilizar 8 threads, caindo para $2,61\times$ e $3,47\times$, respectivamente. Esse comportamento corresponde exatamente ao limite físico do hardware utilizado: ambos os processadores possuem **4 núcleos físicos**. Ao instanciar 8 threads explorando o SMT/Hyper-Threading, o sistema sofre penalidades de trocas de contexto (*context switching*) e contenção na hierarquia de memória cache e barramentos locais.
 - **MPI:** a execução utiliza 1 processo por nó físico, distribuído em até 13 nós distintos do cluster. Cada processo executa isoladamente no processador local (i3-3240) e dispõe exclusivamente de seus $2\text{ GiB}$ de RAM. Nesse cenário, adicionam-se núcleos e controladores de memória reais a cada passo, evitando superalocação. Dessa forma, o MPI continua reduzindo o tempo global de execução de forma consistente, de $66,67\text{ s}$ para $45,06\text{ s}$, ao passar de 8 para 13 processos.
 
+
 #### 2. Natureza do *overhead* (custo de paralelização)
 
 - **OpenMP:** a redução da eficiência para $70\%$ com 4 threads decorre do custo de gerenciamento e sincronização de barreiras de threads pelo sistema operacional e da contenção na largura de banda de memória compartilhada e protocolos de coerência de cache.
 - **MPI:** no cluster distribuído, não há coerência de cache global baseada em hardware entre os nós. A comunicação ocorre explicitamente pela rede Ethernet, com custos de latência, empacotamento e sincronização. Embora a eficiência do MPI também diminua gradativamente (atingindo $69,9\%$ em 13 nós na versão base), o *speedup* continua crescendo de forma monotônica.
+
+## 8.3 Comparação conceitual: OpenMP × MPI
+
+| Aspecto | OpenMP (dentro do nó) | MPI (entre nós) |
+|---|---|---|
+| **Modelo de memória** | Compartilhada: todas as *threads* acessam a mesma matriz | Distribuída: cada *rank* tem seu espaço de endereçamento isolado |
+| **Decomposição do Jogo da Vida** | As *threads* dividem as colunas do laço `evolve` sobre a mesma matriz | O domínio é dividido em fatias de colunas, uma por *rank* |
+| **Colunas-fantasma** | Desnecessárias: a *thread* lê diretamente as colunas vizinhas, com índices circulares (`% w`) | Necessárias: cada fatia guarda cópias das colunas de borda dos vizinhos |
+| **Comunicação** | Sem mensagens; os dados são lidos da memória compartilhada | Explícita: `MPI_Sendrecv` de 2 colunas por geração, pela rede |
+| **Sincronização** | Barreira ao fim de cada laço paralelo, a cada geração, mais contenção de memória e cache; ocorre em memória local e é bem menor que o custo de uma troca de mensagens pela rede | Troca síncrona com os vizinhos, `MPI_Barrier` e `MPI_Reduce`, com latência de rede |
+| **Garantia de correção** | Buffer auxiliar (leitura da geração atual, escrita da próxima) e barreira antes da cópia | Troca das colunas-fantasma antes do cálculo de cada geração |
+| **Escalabilidade** | Limitada pelos núcleos e pela memória de um nó | Cresce com o número de nós, limitada pelo custo de comunicação |
+| **Limite observado** | Pico com 4 *threads* (núcleos físicos); degradação com 8 por SMT (seção 8.1) | *Speedup* crescente até 13 nós, com eficiência decrescente (seção 4) |
+| **Complexidade de programação** | Baixa: diretivas (`#pragma omp parallel for`) sobre o código serial | Maior: decomposição explícita, tipos derivados, tratamento do resto da divisão |
+| **Melhor uso** | Problema que cabe em um nó | Problema que excede a memória ou o poder de um nó |
 
 ---
 
